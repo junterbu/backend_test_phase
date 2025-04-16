@@ -38,175 +38,71 @@ app.get("/test", (req, res) => {
     res.json({ message: "CORS funktioniert!" });
 });
 
+// Initialer Start eines Nutzers (nach Eingabe der Matrikelnummer)
 app.get("/api/quiz/start/:userId", async (req, res) => {
     const userId = req.params.userId;
 
     try {
-        let { rows: fragenRows } = await pool.query("SELECT fragen FROM quiz_fragen WHERE user_id = $1", [userId]);
-        let fragen = fragenRows[0]?.fragen;
+        // Prüfen ob Nutzer bereits in quiz_fragen existiert
+        const fragenResult = await pool.query("SELECT fragen FROM quiz_fragen WHERE user_id = $1", [userId]);
+        let fragen = fragenResult.rows[0]?.fragen || [];
 
-        if (!fragen) {
+        // Falls nicht vorhanden, neue Fragen generieren und speichern
+        if (!fragen.length) {
             fragen = quizFragen.sort(() => Math.random() - 0.5).slice(0, 7);
             await pool.query("INSERT INTO quiz_fragen (user_id, fragen) VALUES ($1, $2)", [userId, fragen]);
         }
 
-        const { rows: ergebnisRows } = await pool.query("SELECT beantwortete_fragen FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
-        let beantwortet = ergebnisRows[0]?.beantwortete_fragen || [];
+        // Prüfen ob Nutzer in quiz_ergebnisse existiert, sonst anlegen
+        const ergebnisResult = await pool.query("SELECT beantwortete_fragen FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
+        let beantwortet = ergebnisResult.rows[0]?.beantwortete_fragen;
 
-        const nochOffen = fragen.find(f => !beantwortet.some(b => b.raum === f));
+        if (!ergebnisResult.rows.length) {
+            await pool.query("INSERT INTO quiz_ergebnisse (user_id, punkte, beantwortete_fragen) VALUES ($1, 0, $2)", [userId, JSON.stringify([])]);
+            beantwortet = [];
+        }
+
+        // Nächste unbeantwortete Frage finden
+        const nochOffen = fragen.find(f => !(beantwortet || []).some(b => b.raum === f));
 
         if (!nochOffen) {
             return res.status(200).json({ done: true, message: "Alle Fragen beantwortet!" });
         }
 
         res.status(200).json({ frage: nochOffen });
-
     } catch (error) {
-        console.error("Fehler beim Quizstart:", error);
+        console.error("❌ Fehler beim Quizstart:", error);
         res.status(500).json({ error: "Quizstart fehlgeschlagen" });
     }
 });
 
-app.get("/api/data/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
-        const { rows } = await pool.query(
-            "SELECT * FROM quiz_ergebnisse WHERE user_id = $1",
-            [userId]
-        );
-        res.status(200).json(rows[0] || {});
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Abrufen der Daten" });
-    }
-});
-
+// Speicherung einer beantworteten Frage
 app.post("/api/quiz", async (req, res) => {
     try {
-        const { userId, raum, auswahl } = req.body;
+        const { userId, raum, auswahl, frage, richtigeAntwort, punkte } = req.body;
 
-        const { rows } = await pool.query(
-            "SELECT * FROM quiz_ergebnisse WHERE user_id = $1",
-            [userId]
-        );
-
-        let beantworteteFragen = rows[0]?.beantwortete_fragen || [];
-        let punkte = rows[0]?.punkte || 0;
-        const quizDaten = {
-            "Gesteinsraum": { frage: "Welche Aussage zur CE-Kennzeichnung von Asphaltmischgut ist korrekt?", antwort: "Sie zeigt an, dass gesetzliche Vorschriften eingehalten wurden", punkte: 10 },
-            "Mischer": { frage: "Warum ist eine Typprüfung von Asphaltmischgut notwendig?", antwort: "Um die normgemäßen Anforderungen an das Mischgut zu überprüfen", punkte: 10 },
-            "Marshall": { frage: "Wie wird der optimale Bindemittelgehalt eines Asphaltmischguts ermittelt?", antwort: "Durch Erstellen einer Polynomfunktion und Finden des Maximums der Raumdichten", punkte: 10 },
-            "Rohdichte": { frage: "Mit welchem volumetrischen Kennwert wird die maximale Dichte eines Asphaltmischguts ohne Hohlräume beschrieben?", antwort: "Rohdichte", punkte: 10 },
-            "Pyknometer": { frage: "Wofür steht die Masse m_2 im Volumetrischen Verfahren zur Ermittlung der Rohdichte nach ÖNORM EN 12697-8?", antwort: "Masse des Pyknometers mit Aufsatz, Feder und Laborprobe", punkte: 10 },
-            "Hohlraumgehalt": { frage: "Ab wie viel % Hohlraumgehalt ist Verfahren D: Raumdichte durch Ausmessen der ÖNORM EN 12697-6 empfohlen?", antwort: "Ab 10%", punkte: 10 },
-            "ÖNORM EN 12697-8": { frage: "Wie wird der Hohlraumgehalt eines Probekörpers nach ÖNORM EN 12697-8 ermittelt?", antwort: "Aus der Differenz von Raumdichte und Rohdichte", punkte: 10 },
-            "NaBe": { frage: "Wie viele Recyclingasphalt muss ein Asphaltmischgut gemäß „Aktionsplan nachhaltige öffentlichen Beschaffung (naBe)“ mindestens enthalten?", antwort: "10M%", punkte: 10 },
-            "WPK": { frage: "Wozu dient die Werkseigene Produktionskontrolle (WPK)?", antwort: "Zur Qualitätssicherung während der Produktion in Eigenüberwachung", punkte: 10 },
-            "Grenzsieblinien": { frage: "Wo findet man Grenzsieblinien von Asphaltmischgütern?", antwort: "In den Produktanforderungen für Asphaltmischgut (ÖNORM B 358x-x)", punkte: 10 },
-            "Raumdichte": {frage: "Welche Verfahren zur Bestimmung der Raumdichte von Asphaltprobekörpern nach ÖNORM EN 12697-6 sind für dichte Probekörper bis etwa 7% Hohlraumgehalt geeignet?", antwort: "Verfahren A: Raumdichte — trocken und Verfahren B: Raumdichte — SSD ", punkte: 10 }
-        };
-
-        if (!beantworteteFragen.some(q => q.raum === raum)) {
-            const korrekt = quizDaten[raum]?.antwort === auswahl;
-            const neuePunkte = korrekt ? quizDaten[raum].punkte : 0;
-
-            beantworteteFragen.push({
-                raum,
-                frage: quizDaten[raum]?.frage,
-                gegebeneAntwort: auswahl,
-                richtigeAntwort: quizDaten[raum]?.antwort,
-                punkte: neuePunkte
-            });
-
-            punkte += neuePunkte;
-        }
-
-        await pool.query(
-            `INSERT INTO quiz_ergebnisse (user_id, punkte, beantwortete_fragen)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id) DO UPDATE SET punkte = $2, beantwortete_fragen = $3`,
-            [userId, punkte, JSON.stringify(beantworteteFragen)]
-        );
-
-        res.status(200).json({ message: "Quiz-Daten gespeichert!", punkte });
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Speichern der Quiz-Daten" });
-    }
-});
-
-
-app.get("/api/punkte/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
-        const { rows } = await pool.query("SELECT punkte FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
-        res.status(200).json({ punkte: rows[0]?.punkte || 0 });
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Abrufen der Punkte" });
-    }
-});
-
-app.get("/api/quizfragen/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
-        const { rows } = await pool.query("SELECT fragen FROM quiz_fragen WHERE user_id = $1", [userId]);
-
-        if (rows.length > 0) {
-            return res.status(200).json({ fragen: rows[0].fragen });
-        }
-
-        const zufallsFragen = quizFragen.sort(() => Math.random() - 0.5).slice(0, 7);
-        await pool.query("INSERT INTO quiz_fragen (user_id, fragen) VALUES ($1, $2)", [userId, zufallsFragen]);
-
-        res.status(200).json({ fragen: zufallsFragen });
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Abrufen der Fragen" });
-    }
-});
-
-app.get("/api/beantworteteFragen/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
-        const { rows } = await pool.query("SELECT beantwortete_fragen FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
-        res.status(200).json({ fragen: rows[0]?.beantwortete_fragen || [] });
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Abrufen der Fragen" });
-    }
-});
-
-app.get("/api/quizErgebnisse/:userId", async (req, res) => {
-    try {
-        const userId = req.params.userId;
         const { rows } = await pool.query("SELECT beantwortete_fragen, punkte FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
-        res.status(200).json({ ergebnisse: rows[0]?.beantwortete_fragen || [], gesamtPunkte: rows[0]?.punkte || 0 });
+        let beantworteteFragen = rows[0]?.beantwortete_fragen || [];
+        let bisherigePunkte = rows[0]?.punkte || 0;
+
+        if (!beantworteteFragen.some(f => f.raum === raum)) {
+            beantworteteFragen.push({ raum, frage, gegebeneAntwort: auswahl, richtigeAntwort, punkte });
+            bisherigePunkte += punkte;
+
+            await pool.query(
+                "UPDATE quiz_ergebnisse SET beantwortete_fragen = $1, punkte = $2 WHERE user_id = $3",
+                [JSON.stringify(beantworteteFragen), bisherigePunkte, userId]
+            );
+        }
+
+        res.status(200).json({ message: "Antwort gespeichert", punkte: bisherigePunkte });
     } catch (error) {
-        res.status(500).json({ error: "Fehler beim Abrufen der Quiz-Ergebnisse" });
+        console.error("❌ Fehler beim Speichern der Quiz-Daten:", error);
+        res.status(500).json({ error: "Fehler beim Speichern" });
     }
 });
 
-app.post("/api/uploadPDF", async (req, res) => {
-    try {
-        if (!req.files || !req.files.pdf) {
-            return res.status(400).json({ error: "Kein PDF gefunden" });
-        }
-        const userId = req.body.userId;
-        const fileName = `Laborberichte/Pruefbericht_${userId}.pdf`;
-        const blobs = await list();
-        const existingPDF = blobs.blobs.find(blob => blob.pathname === fileName);
-
-        if (existingPDF) {
-            return res.status(200).json({ message: "PDF bereits gespeichert", url: existingPDF.url });
-        }
-
-        const uploadResult = await put(fileName, req.files.pdf.data, {
-            access: "public",
-            contentType: "application/pdf"
-        });
-
-        res.status(200).json({ message: "PDF gespeichert", url: uploadResult.url });
-    } catch (error) {
-        res.status(500).json({ error: "Fehler beim Speichern des PDFs" });
-    }
-});
-
+// Abschlussroute: Speichere Endergebnis in labor_ergebnisse
 app.post("/api/storeResults", async (req, res) => {
     try {
         const { userId, punkte, optimalerBitumengehalt, maximaleRaumdichte } = req.body;
@@ -221,6 +117,7 @@ app.post("/api/storeResults", async (req, res) => {
         await appendToCSV(userId, punkte, optimalerBitumengehalt, maximaleRaumdichte);
         res.status(200).json({ message: "Ergebnisse gespeichert" });
     } catch (error) {
+        console.error("❌ Fehler beim Speichern in labor_ergebnisse:", error);
         res.status(500).json({ error: "Fehler beim Speichern" });
     }
 });
@@ -248,7 +145,7 @@ async function appendToCSV(userId, punkte, optimalerBitumengehalt, maximaleRaumd
             contentType: "text/csv",
         });
     } catch (error) {
-        console.error("CSV-Fehler:", error);
+        console.error("❌ CSV-Fehler:", error);
     }
 }
 
