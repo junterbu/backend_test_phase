@@ -12,8 +12,6 @@ import { put, list } from "@vercel/blob";
 const CSV_FILE_NAME = "labor_ergebnisse.csv"; // Name der Datei im Storage
 const STORAGE_BUCKET = "virtuelles-labor-pdf-storage"; // Dein Vercel Blob Storage
 
-
-
 // .env Datei laden
 dotenv.config();
 
