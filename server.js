@@ -4,7 +4,7 @@ import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import { pool } from "./db.js";
-import { put, list } from "@vercel/blob"; // Vercel Blob für PDF/CSV
+import { put, list } from "@vercel/blob";
 
 const CSV_FILE_NAME = "labor_ergebnisse.csv";
 const STORAGE_BUCKET = "virtuelles-labor-pdf-storage";
@@ -36,6 +36,35 @@ app.get("/", (req, res) => {
 
 app.get("/test", (req, res) => {
     res.json({ message: "CORS funktioniert!" });
+});
+
+app.get("/api/quiz/start/:userId", async (req, res) => {
+    const userId = req.params.userId;
+
+    try {
+        let { rows: fragenRows } = await pool.query("SELECT fragen FROM quiz_fragen WHERE user_id = $1", [userId]);
+        let fragen = fragenRows[0]?.fragen;
+
+        if (!fragen) {
+            fragen = quizFragen.sort(() => Math.random() - 0.5).slice(0, 7);
+            await pool.query("INSERT INTO quiz_fragen (user_id, fragen) VALUES ($1, $2)", [userId, fragen]);
+        }
+
+        const { rows: ergebnisRows } = await pool.query("SELECT beantwortete_fragen FROM quiz_ergebnisse WHERE user_id = $1", [userId]);
+        let beantwortet = ergebnisRows[0]?.beantwortete_fragen || [];
+
+        const nochOffen = fragen.find(f => !beantwortet.some(b => b.raum === f));
+
+        if (!nochOffen) {
+            return res.status(200).json({ done: true, message: "Alle Fragen beantwortet!" });
+        }
+
+        res.status(200).json({ frage: nochOffen });
+
+    } catch (error) {
+        console.error("Fehler beim Quizstart:", error);
+        res.status(500).json({ error: "Quizstart fehlgeschlagen" });
+    }
 });
 
 app.get("/api/data/:userId", async (req, res) => {
