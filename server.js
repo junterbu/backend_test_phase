@@ -107,6 +107,7 @@ app.post("/api/quiz", async (req, res) => {
     res.json({ message: "Antwort gespeichert" });
 });
 
+
 app.get("/api/punkte/:userId", async (req, res) => {
   const { userId } = req.params;
   const { data, error } = await supabase
