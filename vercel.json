@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "builds": [
+    { 
+      "src": "server.js", 
+      "use": "@vercel/node",
+      "config": {
+        "functions": {
+          "api/sendEmail": {
+            "maxDuration": 10,
+            "memory": 1024,
+            "maxRequestBodySize": "50mb"
+          }
+        }
+      }
+    }
+  ],
+  "rewrites": [
+    { "source": "/(.*)", "destination": "server.js" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Credentials", "value": "true" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, Content-Length" }
+      ]
+    }
+  ]
+}
+
