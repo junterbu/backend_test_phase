@@ -179,4 +179,43 @@ app.get("/api/quizErgebnisse/:userId", async (req, res) => {
   res.json({ ergebnisse: data });
 });
 
+
+app.post("/api/internereports", async (req, res) => {
+  const {
+    user_id,
+    optimaler_bitumengehalt,
+    maximale_raumdichte,
+    mittelwerte_raumdichte,
+    bitumenanteile,
+    rohdichten,
+    gesamtpunkte,
+    pdf_url // optional!
+  } = req.body;
+
+  // Prüfung auf Mindestangaben
+  if (!user_id || optimaler_bitumengehalt == null || maximale_raumdichte == null) {
+    return res.status(400).json({ error: "Ungültige Eingabedaten" });
+  }
+
+  const { error } = await supabase.from("interne_reports").insert([
+    {
+      user_id,
+      optimaler_bitumengehalt,
+      maximale_raumdichte,
+      mittelwerte_raumdichte,
+      bitumenanteile,
+      rohdichten,
+      gesamtpunkte,
+      pdf_url // kann auch null sein
+    }
+  ]);
+
+  if (error) {
+    console.error("❌ Fehler beim Speichern des Reports:", error);
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ message: "✅ Interner Report erfolgreich gespeichert" });
+});
+
 export default app;
