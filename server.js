@@ -89,22 +89,24 @@ app.get("/api/quizfragen/:userId", async (req, res) => {
 });
 
 app.post("/api/quiz", async (req, res) => {
-    const { userId, raum, antwort, punkte } = req.body;
-  
-    if (!userId || !raum || !antwort || punkte === undefined) {
-      return res.status(400).json({ error: "Ungültige Eingabedaten" });
-    }
-  
-    const eintrag = {
-      user_id: userId,
-      beantwortete_fragen: raum,
-      antwort: antwort,
-      punkte: punkte
-    };
-  
-    const { error } = await supabase.from('quiz_ergebnisse').insert([eintrag]);
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ message: "Antwort gespeichert" });
+  const { userId, raum, antwort, punkte, frage, richtige_antwort } = req.body;
+
+  if (!userId || !raum || !antwort || punkte === undefined || !frage || !richtige_antwort) {
+    return res.status(400).json({ error: "Ungültige Eingabedaten" });
+  }
+
+  const eintrag = {
+    user_id: userId,
+    beantwortete_fragen: raum,
+    antwort: antwort,
+    punkte: punkte,
+    frage: frage,
+    richtige_antwort: richtige_antwort
+  };
+
+  const { error } = await supabase.from('quiz_ergebnisse').insert([eintrag]);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: "Antwort gespeichert" });
 });
 
 
@@ -162,6 +164,19 @@ app.post("/api/storeResults/", async (req, res) => {
   const { error } = await supabase.from('labor_ergebnisse').insert([eintrag]);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: "Ergebnis gespeichert" });
+});
+
+// server.js
+app.get("/api/quizErgebnisse/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  const { data, error } = await supabase
+    .from("quiz_ergebnisse")
+    .select("frage, antwort, richtige_antwort, punkte")
+    .eq("user_id", userId);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ergebnisse: data });
 });
 
 export default app;
